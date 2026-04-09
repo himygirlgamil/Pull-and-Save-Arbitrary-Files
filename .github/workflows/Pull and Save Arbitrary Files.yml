@@ -98,11 +98,11 @@ jobs:
         ls -lh download_results/
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4 
+      uses: actions/upload-artifact@v7 
       with:
         # 如果用户没改名字，且只有一个文件，其实可以动态改，但这里保持简单
         # 如果用户希望名字更具体，可以在 inputs 里改，或者这里用脚本动态设置 output
         name: ${{ github.event.inputs.artifact_name != '' && github.event.inputs.artifact_name || 'downloaded-sources' }}
         # 【关键修改】上传目录下所有的 tar.xz 文件，它们会作为独立文件显示在 Artifact 列表中
-        path: download_results/*.tar.xz
+        path: download_results/*.xz
         retention-days: 5
