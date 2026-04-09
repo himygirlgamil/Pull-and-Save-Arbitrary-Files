@@ -18,8 +18,8 @@ on:
         default: 'https://github.com/alpinelinux/docker-alpine.git#master,https://github.com/busybox-mirror/busybox.git#stable'
       
       artifact_name:
-        description: '请填写制品包名称'
-        required: true
+        description: '请填写制品包名称 (如果留空，多文件时将自动使用默认名)'
+        required: false
         default: 'downloaded-artifacts'
 
 jobs:
@@ -62,8 +62,13 @@ jobs:
             
             repo_name=$(basename "$repo_url" .git)
             echo "Cloning $repo_url (branch: $branch) into $repo_name..."
-            # 添加 --recurse-submodules 以防万一需要子模块，可选
             git clone --depth 1 --branch "$branch" "$repo_url" "$repo_name"
+            
+            # 【关键修改】对每个仓库单独打包压缩，模仿 Docker 脚本的行为
+            echo "Packing $repo_name..."
+            tar -cvf "${repo_name}.tar" -C "$repo_name" .
+            xz -v -T0 -8 "${repo_name}.tar"
+            rm -rf "$repo_name" # 删除原目录，只保留压缩包
             
           elif [ "$mode" == "url" ]; then
             file_name=$(basename "$source" | cut -d'?' -f1)
@@ -73,6 +78,15 @@ jobs:
             
             echo "Downloading $source to $file_name..."
             curl -L -o "$file_name" "$source"
+            
+            # 【关键修改】如果是 URL 下载的文件，也可以选择压缩（可选，这里为了统一格式进行压缩）
+            # 如果文件已经是压缩包 (xz, gz, zip)，可以跳过压缩，这里为了演示统一处理
+            if [[ ! "$file_name" =~ \.(tar\.xz|tgz|zip|gz)$ ]]; then
+                echo "Compressing $file_name..."
+                tar -cvf "${file_name}.tar" "$file_name"
+                xz -v -T0 -8 "${file_name}.tar"
+                rm -f "$file_name"
+            fi
           else
             echo "Unknown mode: $mode"
             exit 1
@@ -80,31 +94,15 @@ jobs:
         done
         
         cd ..
-
-    - name: Package Files
-      run: |
-        cd download_results
-        # 打包当前目录所有内容到上一级目录的 all_downloads.tar
-        tar -cvf ../all_downloads.tar .
-        cd ..
-        
-        echo "Compressing archive..."
-        # 确认 tar 文件存在再压缩
-        if [ -f "all_downloads.tar" ]; then
-            xz -v -T0 -8 all_downloads.tar
-            rm -f all_downloads.tar
-            echo "Compression successful. File list:"
-            ls -lh *.tar.xz
-        else
-            echo "Error: all_downloads.tar not found before compression!"
-            exit 1
-        fi
+        echo "Download and packaging complete. Files:"
+        ls -lh download_results/
 
     - name: Upload artifact
-      # 【关键修改】将 v7 改为 v4，v7 版本不存在导致失败
       uses: actions/upload-artifact@v4 
       with:
-        name: ${{ github.event.inputs.artifact_name }}
-        # 【优化】使用通配符，确保能匹配到生成的 xz 文件，防止路径微差导致失败
-        path: '*.tar.xz' 
+        # 如果用户没改名字，且只有一个文件，其实可以动态改，但这里保持简单
+        # 如果用户希望名字更具体，可以在 inputs 里改，或者这里用脚本动态设置 output
+        name: ${{ github.event.inputs.artifact_name != '' && github.event.inputs.artifact_name || 'downloaded-sources' }}
+        # 【关键修改】上传目录下所有的 tar.xz 文件，它们会作为独立文件显示在 Artifact 列表中
+        path: download_results/*.tar.xz
         retention-days: 5
