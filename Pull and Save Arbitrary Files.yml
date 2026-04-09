@@ -1,0 +1,114 @@
+name: x86-64 Download Arbitrary Projects
+
+on:
+  workflow_dispatch:
+    inputs:
+      download_mode:
+        description: '选择下载模式: git (下载仓库源码) 或 url (下载直接链接文件)'
+        required: true
+        default: 'git'
+        type: choice
+        options:
+          - git
+          - url
+      
+      sources:
+        description: '请输入源列表 (多个用英文逗号分开)。Git模式填: 仓库URL#分支/Tag; URL模式填: 文件链接'
+        required: true
+        default: 'https://github.com/alpinelinux/docker-alpine.git#master,https://github.com/busybox-mirror/busybox.git#stable'
+      
+      artifact_name:
+        description: '请填写制品包名称'
+        required: true
+        default: 'downloaded-artifacts'
+
+jobs:
+  download_and_package:
+    runs-on: ubuntu-22.04
+    # 注意：GitHub Actions 的 outputs.public_artifacts 并不是标准字段，公开性通常在 Repository Settings 或 Artifact 上传时控制
+    # 如果需要公开，请确保仓库是公开的，或者在上传步骤使用特定配置（如果是私有仓库需配置权限）
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Clean up disk space (Optional)
+      run: |
+          df -h
+          # 如果不需要 Docker，可以跳过 docker prune，或者保留以防万一
+          if command -v docker &> /dev/null; then
+            docker system prune -a -f || true
+            docker volume prune -f || true
+          fi
+
+    - name: Download Sources
+      run: |
+        mode="${{ github.event.inputs.download_mode }}"
+        sources="${{ github.event.inputs.sources }}"
+        
+        # 创建下载目录
+        mkdir -p download_results
+        cd download_results
+
+        IFS=',' read -r -a source_array <<< "$sources"
+        
+        for source in "${source_array[@]}"; do
+          # 去除首尾空格
+          source=$(echo "$source" | xargs)
+          
+          if [ "$mode" == "git" ]; then
+            # Git 模式: 期望格式 "URL#branch" 或 "URL" (默认 main/master)
+            if [[ "$source" == *"#"* ]]; then
+              repo_url="${source%#*}"
+              branch="${source##*#}"
+            else
+              repo_url="$source"
+              branch="main" # 默认分支，可根据需要改为 master
+            fi
+            
+            # 生成文件夹名 (去除 .git 后缀和特殊字符)
+            repo_name=$(basename "$repo_url" .git)
+            echo "Cloning $repo_url (branch: $branch) into $repo_name..."
+            git clone --depth 1 --branch "$branch" "$repo_url" "$repo_name"
+            
+          elif [ "$mode" == "url" ]; then
+            # URL 模式: 直接下载文件
+            # 生成文件名
+            file_name=$(basename "$source" | cut -d'?' -f1)
+            # 如果文件名空或非法，生成一个默认名
+            if [ -z "$file_name" ] || [ "$file_name" == "download" ]; then
+              file_name="file_$(date +%s)_${RANDOM}"
+            fi
+            
+            echo "Downloading $source to $file_name..."
+            curl -L -o "$file_name" "$source"
+          else
+            echo "Unknown mode: $mode"
+            exit 1
+          fi
+        done
+        
+        cd ..
+
+    - name: Package Files
+      run: |
+        cd download_results
+        # 将所有下载的内容打包并压缩
+        # 如果是 git 仓库，保持目录结构；如果是文件，直接压缩
+        tar -cvf ../all_downloads.tar .
+        cd ..
+        
+        echo "Compressing archive..."
+        xz -v -T0 -8 all_downloads.tar
+        
+        # 清理未压缩文件以节省空间
+        rm -f all_downloads.tar
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4 # 建议使用 v4，v7 可能不存在或为 beta
+      with:
+        name: ${{ github.event.inputs.artifact_name }}
+        path: all_downloads.tar.xz
+        retention-days: 5
+        # 如果需要让公众可下载，需确保仓库是 Public 的，Actions 权限设置允许
+        # 注意：upload-artifact 本身没有直接的 public=true 参数，公开性由仓库可见性决定
