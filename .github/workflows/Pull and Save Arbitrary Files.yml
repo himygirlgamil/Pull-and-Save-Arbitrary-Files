@@ -106,4 +106,5 @@ jobs:
         name: ${{ github.event.inputs.artifact_name }}
         # 【关键修改】上传目录下所有的 tar.xz 文件，它们会作为独立文件显示在 Artifact 列表中
         path: download_results/*.xz
+        archive: false 
         retention-days: 5
