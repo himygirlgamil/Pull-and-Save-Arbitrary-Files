@@ -6,7 +6,7 @@ on:
       download_mode:
         description: '选择下载模式：git (下载仓库源码) 或 url (下载直接链接文件)'
         required: true
-        default: 'git'
+        default: 'url'
         type: choice
         options:
           - git
