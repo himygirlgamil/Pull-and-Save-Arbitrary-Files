@@ -81,7 +81,7 @@ jobs:
             
             # 【关键修改】如果是 URL 下载的文件，也可以选择压缩（可选，这里为了统一格式进行压缩）
             # 如果文件已经是压缩包 (xz, gz, zip)，可以跳过压缩，这里为了演示统一处理
-            if [[ ! "$file_name" =~ \.(tar\.xz|tgz|zip|gz)$ ]]; then
+            if [[ ! "$file_name" =~ \.(xz)$ ]]; then
                 echo "Compressing $file_name..."
                 tar -cvf "${file_name}.tar" "$file_name"
                 xz -v -T0 -8 "${file_name}.tar"
